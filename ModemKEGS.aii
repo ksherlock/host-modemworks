@@ -1,0 +1,126 @@
+
+	machine	m65816
+	case	on
+	string asis
+
+	longa	off
+	longi	off
+
+	include	'OMM.equ'
+
+	macro
+&l	cstr &x
+&l	dc.b &x, 0
+	endm
+
+a1	equ $3c
+prmtbl	equ $e0
+
+FRMNUM	equ $dd67
+GETADR	equ $e752
+
+WDM_ID	equ $fe
+
+proc	proc
+hVERS	dc.w $0000
+hID	dc.w 'mt'
+hSIZE	dc.w end-start
+hORG	dc.w start
+hAMPC	dc.w amperc
+hKIND	dc.w $0000
+hRSRV1	dc.w $0000
+hRSRV2	dc.w $0000
+
+
+start
+
+	cmp #MSG_AMPR		;ampersand call?
+	beq do_ampr		;yes
+	cmp #MSG_INFO		;get info string?
+	beq do_info
+	cmp #MSG_USER
+	beq native_dispatch
+	rts
+
+do_ampr
+	; & mset address.
+	; this is a nop.
+	; however we still need to grab out argument.
+	jsr FRMNUM
+	jsr GETADR
+	sty prmtbl
+	sta prmtbl+1
+	rts
+
+do_info
+	lda a_info
+	sta a1
+	lda a_info+1
+	sta a1+1
+	rts
+
+;do_user
+;	cpy #18+1
+;	bcc native_dispatch
+;	rts
+
+	; 16-bite code. NOT relocated. position independent code ONLY.
+native_dispatch
+	; a = omm id
+	; y = request (if msg_user)
+
+	clc
+	xce
+	rep #$30
+	longa on
+	longi on
+
+	ldx my_id
+	and ff
+	;
+	; wdm inputs:
+	; a = OMM call number
+	; x = tool id
+	; y = user call number
+	;
+	; wdm $85
+	dc.b $42, WDM_ID
+
+	php
+	sec
+	xce
+	longa off
+	longi off
+	plp
+	rts
+
+
+
+	dc.b 0
+*
+* immediate table
+*
+a_info	dc.w info
+	dc.w 0
+
+
+*
+* data
+*
+
+my_id	dc.w 'mt'
+ff	dc.w $00ff
+
+	; dc.b '&SYSDATE' will not expand &SYSDATE.
+	msb on
+info	cstr '&SYSDATE Modem (KEGS) 1.0'
+	msb off
+
+amperc
+	cstr 'MSET'
+	dc.b -1
+
+end
+
+	endp
+	end

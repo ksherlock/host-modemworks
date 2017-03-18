@@ -1,0 +1,151 @@
+
+	machine	m65816
+	case	on
+	string asis
+
+	longa	off
+	longi	off
+
+	include	'OMM.equ'
+	include	'PortTool.equ'
+	include	'ConsoleTool.equ'
+
+	macro
+&l	cstr &x
+&l	dc.b &x, 0
+	endm
+
+a1	equ $3c
+prmtbl	equ $e0
+
+WDM_ID	equ $fe
+
+proc	proc
+hVERS	dc.w $0000
+hID	dc.w 'pt'
+hSIZE	dc.w end-start
+hORG	dc.w start
+hAMPC	dc.w 0
+hKIND	dc.w $0000
+hRSRV1	dc.w $0000
+hRSRV2	dc.w $0000
+
+
+start
+
+	cmp #MSG_INFO
+	beq do_info
+	cmp #MSG_USER
+	beq do_user
+	cmp #MSG_INIT
+	beq native_dispatch
+	cmp #MSG_QUIT
+	beq native_dispatch
+	cmp #MSG_BORN
+	beq lifetime
+	cmp #MSG_DIED
+	beq lifetime
+	rts
+
+lifetime
+	lda #<CT_ID
+	sta <a1
+	lda #>CT_ID
+	sta <a1+1
+	ldx #OMM_ID
+	ldy #OMM_GETID
+	jsr OMMVEC
+	stx ct_id
+	rts 
+
+do_info
+	lda a_info
+	sta a1
+	lda a_info+1
+	sta a1+1
+	rts
+
+
+do_user
+	; if this is SerShowSearch call, we do some extra processing
+	; to call the console tool to show the character as well.
+	cpy #SerShowSearch
+	bne native_dispatch
+	jsr native_dispatch
+show_it
+	bcc @exit
+	ldx ct_id
+	beq @exit
+	pei prmtbl ; save it...
+	sta prmtbl ; character to display
+	ldy #CTWriteChar
+	jsr OMMVEC
+	pla
+	sta prmtbl
+	pla
+	sta prmtbl+1
+@exit
+	rts
+
+	; 16-bite code. NOT relocated. position independent code ONLY.
+native_dispatch
+	; a = omm id
+	; y = request (if msg_user)
+
+	clc
+	xce
+	rep #$30
+	longa on
+	longi on
+
+	ldx my_id
+	and ff
+
+	;
+	; wdm inputs:
+	; a = OMM call number
+	; x = tool id
+	; y = user call number
+	;
+	; wdm $85
+	dc.b $42, WDM_ID
+
+	php
+	sec
+	xce
+	longa off
+	longi off
+	plp
+	rts
+
+
+
+
+	dc.b 0
+*
+* immediate table
+*
+a_info	dc.w info
+	dc.w 0
+
+
+*
+* data
+*
+
+my_id	dc.w 'pt'
+ff	dc.w $00ff
+
+	; dc.b '&SYSDATE' will not expand &SYSDATE.
+	msb on
+info	cstr '&SYSDATE Serial (KEGS) 1.0'
+	msb off
+
+
+ct_id	dc.b 0
+
+
+end
+
+	endp
+	end
