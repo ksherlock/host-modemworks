@@ -1,0 +1,377 @@
+;
+; TimeTool.  needed because serial tool use of poll sleeping screws up timing.
+;
+
+	machine	m65816
+	case	on
+	string asis
+
+	longa	off
+	longi	off
+
+	include	'OMM.equ'
+	include 'TimeTool.equ'
+
+	macro
+&l	cstr &x
+&l	dc.b &x, 0
+	endm
+
+
+	macro
+	native
+	clc
+	xce
+	rep #$30
+	longa on
+	longi on
+	endm
+
+
+	macro
+	nativep
+	php
+	clc
+	xce
+	plp
+	rep #$30
+	longa on
+	longi on
+	endm
+
+	macro
+	emulated
+	sec
+	xce
+	longa off
+	longi off
+	endm
+
+
+	macro
+&l	bsr &x
+&l	per @ok-1
+	brl &x
+@ok
+	mend
+
+
+
+a1	equ $3c
+prmtbl	equ $e0
+lowtr	equ $9b
+
+FRMNUM	equ $dd67
+GETADR	equ $e752
+CHKCLS	equ $deb8 
+CYAREG	equ $c036
+
+WDM_ID	equ $fe
+
+proc	proc
+hVERS	dc.w $0000
+hID	dc.w 'tt'
+hSIZE	dc.w end-start
+hORG	dc.w start
+hAMPC	dc.w amperc
+hKIND	dc.w $0000
+hRSRV1	dc.w $0000
+hRSRV2	dc.w $0000
+
+start
+
+	cmp #MSG_INIT
+	beq do_life
+	cmp #MSG_QUIT
+	beq do_life
+	cmp #MSG_AMPR		;ampersand call?
+	beq do_ampr		;yes
+	cmp #MSG_INFO		;get info string?
+	beq do_info
+	cmp #MSG_USER
+	beq do_user
+	rts
+
+do_info
+	lda a_info
+	sta a1
+	lda a_info+1
+	sta a1+1
+	rts
+
+do_ampr
+	tya
+	asl a
+	tax
+	jmp (ampr_dispatch,x)
+	;
+
+ampr_time
+	jsr get_time_str
+
+	ldy #OMM_PUTSTR 
+	ldx #OMM_ID
+	jsr OMMVEC
+	jmp CHKCLS
+
+ampr_fast
+	lda #$80
+	tsb CYAREG
+	rts
+
+ampr_slow
+	lda #$80
+	trb CYAREG
+	rts
+
+do_user
+	tya
+	asl a
+	tax
+	jmp (dispatch,x)
+
+do_life
+	bra do_life_native
+
+	dc.b 0
+*
+* immediate table
+*
+a_info	dc.w info
+a_buffer
+	dc.w buffer
+
+ampr_dispatch
+	dc.w ampr_time
+	dc.w ampr_fast
+	dc.w ampr_slow
+
+dispatch
+	dc.w native_dispatch ; Ticker
+	dc.w native_dispatch ; GetTicks
+	dc.w native_dispatch ; CountDown
+	dc.w wait_ticks ; WaitTicks
+	dc.w wait_seconds ; WaitSeconds
+	dc.w native_dispatch ; SetCounter
+	dc.w get_time_str ; GetTimeStr
+	dc.w ampr_fast
+	dc.w ampr_slow
+	;
+
+	dc.w 0
+
+my_id	dc.w 'mt'
+ff	dc.w $00ff
+
+	msb on
+info	cstr '&SYSDATE Time (KEGS) 1.0'
+	msb off
+
+amperc
+	cstr 'TIME('
+	cstr 'FAST'
+	cstr 'SLOW'
+	dc.b -1
+
+
+buffer	dc.b 24 ; 23 + 1 to c-string it.
+
+do_life_native
+	native
+	and #$00ff
+	ldx #'tt'
+	dc.b $42, WDM_ID
+	emulated
+	rts
+
+
+	; 16-bite code. NOT relocated. position independent code ONLY.
+native_dispatch
+	; a = omm id
+	; y = request (if msg_user)
+
+	native
+
+	ldx #'tt'
+	lda #MSG_USER
+	; y still valid
+
+	;
+	; wdm inputs:
+	; a = OMM call number
+	; x = tool id
+	; y = user call number
+	;
+	; wdm $85
+	dc.b $42, WDM_ID
+
+	php
+	emulated
+	plp
+	rts
+
+
+get_time_str
+
+	lda #23
+	sta <lowtr
+
+	native
+
+	per buffer
+	pla
+	;lda a_buffer <<< won't work...
+	lda #$0280 ; same buffer as TimeGS
+	sta lowtr+1
+
+	ldx #'tt'
+	lda #MSG_USER
+	ldy #GetTimeStr
+	dc.b $42, WDM_ID
+
+	emulated
+	rts
+
+wait_ticks
+
+	native
+
+	clc
+	lda prmtbl
+	beq @exit 
+
+	lda prmtbl+2 ; check for callback
+	beq @fast
+
+	;brk $ea
+	; callback ... need to handle one tick at a time.
+
+	bsr begin_wait
+
+@loop
+	lda #MSG_USER
+	ldy #WaitTicks
+	ldx #'tt'
+	dc.b $42, WDM_ID
+
+	emulated
+
+	per @rts-1
+	jmp (|prmtbl+2) ; always reads bank 0.
+
+@rts	
+	nativep
+	bcs @exit
+
+	dec prmtbl
+	bne @loop
+	;clc
+
+@exit
+	php
+	bsr end_wait
+	emulated
+	plp
+	rts
+
+
+@fast
+	longa on
+	longi on
+
+	; no callback, so handle it natively.
+	lda #MSG_USER
+	ldy #WaitTicks
+	ldx #'tt'
+	dc.b $42, WDM_ID
+
+	emulated
+	clc
+	rts
+
+
+
+wait_seconds
+
+	native
+
+	lda prmtbl
+	beq @exit
+	sta prmtbl+4
+
+	lda prmtbl+2
+	beq @fast
+
+	;brk $ea
+	bsr begin_wait
+
+@loop60
+	lda #60
+	sta prmtbl
+
+@loop
+	lda #MSG_USER
+	ldy #WaitTicks
+	ldx #'tt'
+	dc.b $42, WDM_ID
+
+	emulated
+
+	per @rts-1
+	jmp (|prmtbl+2) ; always reads bank 0.	
+
+@rts	
+	nativep
+	bcs @exit
+
+	dec prmtbl
+	bne @loop
+
+	dec prmtbl+4
+	bne @loop60
+	;clc
+
+@exit
+	php
+	bsr end_wait
+	emulated
+	plp
+	rts
+
+@fast
+	longa on
+	longi on
+
+	; no callback, handle natively.
+	lda #MSG_USER
+	ldy #WaitSeconds
+	ldx #'tt'
+	dc.b $42, WDM_ID
+
+	emulated
+	clc
+	rts
+
+
+BeginWaitLoop equ $0100
+EndWaitLoop equ $0101
+
+	longa on
+	longi on
+begin_wait
+	lda #MSG_USER
+	ldy #BeginWaitLoop
+	ldx #'tt'
+	dc.b $42, WDM_ID
+	rts
+
+end_wait
+	lda #MSG_USER
+	ldy #EndWaitLoop
+	ldx #'tt'
+	dc.b $42, WDM_ID
+	rts
+
+end
+	endp
+	end
