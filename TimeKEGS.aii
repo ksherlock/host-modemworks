@@ -218,8 +218,8 @@ get_time_str
 
 	native
 
-	per buffer
-	pla
+	;per buffer
+	;pla
 	;lda a_buffer <<< won't work...
 	lda #$0280 ; same buffer as TimeGS
 	sta lowtr+1
