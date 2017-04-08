@@ -7,7 +7,7 @@ MAKEBIN = mpw MakeBinIIgs
 ASM = mpw AsmIIgs
 LINK = mpw LinkIIgs
 
-TARGETS = ModemKEGS SerialKEGS TimeKEGS
+TARGETS = ModemKEGS SerialKEGS TimeKEGS HashKEGS
 
 all: $(TARGETS)
 

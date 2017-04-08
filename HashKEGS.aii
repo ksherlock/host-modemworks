@@ -1,0 +1,587 @@
+
+	machine	m65816
+	case	on
+	string asis
+
+	longa	off
+	longi	off
+
+	include	'OMM.equ'
+
+	macro
+&l	cstr &x
+&l	dc.b &x, 0
+	endm
+
+
+	macro
+	native
+	clc
+	xce
+	rep #$30
+	longa on
+	longi on
+	endm
+
+	macro
+	emulated
+	sec
+	xce
+	longa off
+	longi off
+	endm
+
+
+	macro
+&l	bsr &x
+&l	per @ok-1
+	brl &x
+@ok
+	mend
+
+	MACRO
+	long &p1,&p2
+
+	lcla &bits
+&bits	seta %00000000
+;&p1	setc &lc(&p1)
+;&p2	setc &lc(&p2)
+
+	if &p1='m' OR &p2='m' THEN
+&bits	seta &bits+%00100000
+	longa on
+	ENDIF
+
+	if &p1='x' OR &p2='x' THEN
+&bits	seta &bits+%00010000
+	longi on
+	ENDIF
+
+	IF &bits<>0 THEN
+	rep #&bits
+	ENDIF
+
+	MEND
+
+
+	MACRO
+	short &p1,&p2
+
+	lcla &bits
+&bits	seta %00000000
+;&p1	setc &lc(&p1)
+;&p2	setc &lc(&p2)
+
+	if &p1='m' OR &p2='m' THEN
+&bits	seta &bits+%00100000
+	longa off
+	ENDIF
+
+	if &p1='x' OR &p2='x' THEN
+&bits	seta &bits+%00010000
+	longi off
+	ENDIF
+
+	IF &bits<>0 THEN
+	sep #&bits
+	ENDIF
+
+	MEND
+
+
+
+
+a1	equ $3c
+a2	equ $3e
+prmtbl	equ $e0
+lowtr	equ $9b
+
+TXTPTR	equ $b8
+CHRGET	equ $00b1
+FRMNUM	equ $dd67
+GETADR	equ $e752
+CHKCLS	equ $deb8
+CHKOPN	equ $debb 
+CHKCOM	equ $debe
+GETBYT	equ $e6f8
+SYNERR	equ $dec9
+
+WDM_ID	equ $fe
+
+
+tkDATA	equ $83
+tkTEXT	equ $89
+tkNEW	equ $bf
+tkEND	equ $80
+tkVAL	equ $e5
+
+	entry end
+	entry native_parse_str1
+	entry native_parse_str2
+
+proc	proc
+hVERS	dc.w $0000
+hID	dc.w 'hh'
+hSIZE	dc.w end-start
+hORG	dc.w start
+hAMPC	dc.w amperct
+hKIND	dc.w $0000
+hRSRV1	dc.w $0000
+hRSRV2	dc.w $0000
+
+
+start
+
+	cmp #MSG_AMPR		;ampersand call?
+	beq do_ampr		;yes
+	cmp #MSG_INFO		;get info string?
+	beq do_info
+	;cmp #MSG_USER
+	;beq native_dispatch
+	rts
+
+do_info
+	lda a_info
+	sta a1
+	lda a_info+1
+	sta a1+1
+	rts
+
+do_ampr
+	; & hash NEW numexpr
+	; & hash END ',' strvar
+	; & hash DATA ( numexpr, numexpr)
+	; & hash TEXT (strexpr)
+	; & hash '(' strexpr ')' ',' strvar
+	; & hash val (strexpr, strexpr), numvar
+
+	;jsr break
+
+	; can't pei since only want 1 byte.
+	lda (TXTPTR)
+	pha
+	jsr CHRGET
+	pla
+	ldx #0
+	cmp #'('
+	beq @ok
+	inx
+	inx
+	cmp #tkNEW
+	beq @ok
+	inx
+	inx
+	cmp #tkDATA
+	beq @ok
+	inx
+	inx
+	cmp #tkTEXT
+	beq @ok
+	inx
+	inx
+	cmp #tkEND
+	inx
+	inx
+	cmp #tkVAL
+	beq @ok
+
+	jmp SYNERR
+
+@ok
+	jmp (hash_table,x)
+
+hash_new
+	jsr GETBYT
+	stx type
+	stx prmtbl+0
+	stz prmtbl+1
+	brl hash_native_init
+
+
+hash_data
+	jsr CHKOPN
+	jsr FRMNUM
+	jsr GETADR
+	sty prmtbl+0
+	sta prmtbl+1
+	jsr CHKCOM
+	jsr FRMNUM
+	jsr GETADR
+	sty prmtbl+2
+	sta prmtbl+3
+
+	bsr hash_native_data
+
+	jmp CHKCLS
+
+
+
+hash_text
+	jsr CHKOPN
+	ldy #OMM_GETSTR
+	ldx #OMM_ID
+	jsr OMMVEC
+	; lowtr[0] = length, lowtr[1,2] = ptr
+
+	lda lowtr+1
+	sta prmtbl+0
+	lda lowtr+2
+	sta prmtbl+1
+
+	lda lowtr
+	sta prmtbl+2
+	stz prmtbl+3
+
+	bsr hash_native_data
+
+	jmp CHKCLS
+
+
+
+hash_paren
+	; & hash ( type, strexpr ) , strvar
+
+	jsr GETBYT
+	stx type
+	stx prmtbl+0
+	stz prmtbl+1
+	bsr hash_native_init
+
+	jsr CHKCOM
+
+	ldy #OMM_GETSTR
+	ldx #OMM_ID
+	jsr OMMVEC
+
+	lda lowtr+1
+	sta prmtbl+0
+	lda lowtr+2
+	sta prmtbl+1
+
+	lda lowtr
+	sta prmtbl+2
+	stz prmtbl+3
+
+	bsr hash_native_data
+
+	jsr CHKCLS
+	jsr CHKCOM
+
+	; drop through...
+hash_end
+
+	; buffer
+
+	lda a_buffer
+	sta lowtr+1
+	sta prmtbl+0
+
+	lda a_buffer+1
+	sta lowtr+2
+	sta prmtbl+1
+
+	; length
+	lda #64
+	sta prmtbl+2
+	stz prmtbl+3
+
+	; call native to finish it...
+	bsr hash_native_finish
+	stz type
+	lda prmtbl+2 ; length
+	sta lowtr
+
+	ldy #OMM_PUTSTR
+	ldx #OMM_ID
+	jmp OMMVEC
+
+hash_val
+	; &hash val(str1,str2),numvar
+	; validates a plaintext password against a hashed password.
+	; str1 = type $ salt $ hash
+	; str2 = plaintext
+	; returns 1 if & hash(type, salt+plaintext)=hash
+
+	bsr break
+
+	; a1 used for return value (OMM_PUTWORD)
+	stz a1
+	stz a1+1
+
+	jsr CHKOPN
+	ldy #OMM_GETSTR
+	ldx #OMM_ID
+	jsr OMMVEC
+
+	bsr native_parse_str1
+
+	jsr CHKCOM
+	ldy #OMM_GETSTR
+	ldx #OMM_ID
+	jsr OMMVEC
+
+	lda lowtr+1
+	sta prmtbl+0
+	lda lowtr+2
+	sta prmtbl+1
+
+	lda lowtr
+	sta prmtbl+2
+	stz prmtbl+3
+
+	bsr native_parse_str2
+
+	jsr CHKCLS
+	jsr CHKCOM
+	ldy #OMM_PUTWORD
+	ldx #OMM_ID
+	jmp OMMVEC
+
+
+	dc.b 0
+*
+* immediate table
+*
+hash_table
+	dc.w hash_paren
+	dc.w hash_new
+	dc.w hash_data
+	dc.w hash_text
+	dc.w hash_end
+	dc.w hash_val
+
+
+a_info	dc.w info
+a_buffer
+	dc.w buffer
+
+
+	dc.w 0
+
+*
+* data
+*
+
+	msb on
+info	cstr '&SYSDATE Hash (KEGS) 1.0'
+	msb off
+
+amperct
+	cstr 'HASH'
+	dc.b -1
+
+type	dc.w 0
+
+	export buffer
+buffer
+	ds.b 64+2
+
+
+hash_native_init
+	native
+	ldy #0
+	bra n
+
+hash_native_finish
+	native
+	ldy #2
+	bra n
+
+hash_native_data
+	native
+	ldy #1
+	;bra n
+n
+	ldx #'hh'
+	lda #MSG_USER
+	dc.b $42, WDM_ID
+	emulated
+	rts
+
+break
+	brk $ea
+	rts
+	endp
+
+
+native_parse_str1 proc
+
+	longa off
+	longi off
+
+	; input - lowtr[0] = length, lowtr[1,2] = variable ptr.
+str	equ lowtr+1
+type	equ prmtbl
+
+	ldx lowtr
+	native
+	short m
+	ldy #0
+	sty type
+tt
+@loop
+	lda (str),y
+	cmp #'$'
+	beq @fini
+	cmp #'0'
+	blt @bad
+	cmp #'9'+1
+	bge @bad
+
+	; type = type + a & 0x0f
+	and #$0f
+	pha
+	lda type
+	asl a ; x 2
+	sta type
+	asl a ; x 4
+	asl a ; x 8
+	clc
+	adc type
+	adc 1,s
+	sta type
+	pla
+	iny
+	dex
+	bne @loop
+
+@bad	ldx #-1 ; length
+	bra exit
+
+@fini
+	long m
+
+	iny ; skip '$'
+	dex 
+	beq @bad
+	phy
+	phx ; save
+
+	; hash init
+	;lda type
+	;sta prmtbl
+	lda #MSG_USER
+	ldy #0
+	ldx #'hh'
+	dc.b $42, WDM_ID
+	;
+	; now reset the string pointer.
+	plx ; remaining
+	pla ; processed
+	clc
+	adc str
+	sta str
+	sta prmtbl
+	ldy #0
+	short m
+salt
+@loop
+	lda (str),y
+	cmp #'$'
+	beq @fini
+	iny
+	dex
+	bne @loop
+@bad
+	; terminate the hash session
+	long m
+	stz prmtbl ; type = 0 closes it.
+	lda #MSG_USER
+	ldy #0
+	ldx #'hh'
+	dc.b $42, WDM_ID
+	ldx #-1
+	bra exit
+
+@fini
+	long m
+
+	sty prmtbl+2 ; count
+	iny
+	dex
+	beq @bad
+
+	phx
+	phy
+
+	; hash append the salt.
+	lda #MSG_USER
+	ldy #1
+	ldx #'hh'
+	dc.b $42, WDM_ID
+
+	; copy the hash...
+	plx ; remaining
+	pla ; offset
+	clc
+	adc str
+	sta prmtbl+4
+
+
+exit
+	stx a2 ; length / -1 on failure.
+	emulated
+	rts
+
+	endp
+
+native_parse_str2 proc
+	longa off
+	longi off
+
+str	equ lowtr+1
+
+	ldx lowtr ; length
+	native
+
+	bit a2 ; hash length
+	bmi exit
+
+	lda #str
+	sta prmtbl
+	stx prmtbl+2
+	; hash it
+	lda #MSG_USER
+	ldy #1
+	ldx #'hh'
+	dc.b $42, WDM_ID
+
+	; and finish it
+
+	per buffer
+	pla
+	sta prmtbl
+	lda #64
+	sta prmtbl+2
+
+	lda #MSG_USER
+	ldy #2
+	ldx #'hh'
+	dc.b $42, WDM_ID
+
+	lda prmtbl+2 ; actual size
+	bne exit
+	cmp a2
+	bne exit
+
+	lsr a ; / 2
+	tay
+	dey
+@loop
+	lda (prmtbl),y
+	cmp (prmtbl+4),y
+	bne exit
+	dey
+	bpl @loop
+	lda #1
+	sta a1
+
+exit
+	emulated
+	rts
+
+	endp
+
+end	proc
+	endp
+	end
