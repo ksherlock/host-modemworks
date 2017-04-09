@@ -302,7 +302,7 @@ hash_val
 	; str2 = plaintext
 	; returns 1 if & hash(type, salt+plaintext)=hash
 
-	bsr break
+	;bsr break
 
 	; a1 used for return value (OMM_PUTWORD)
 	stz a1
@@ -499,10 +499,11 @@ salt
 	sty prmtbl+2 ; count
 	iny
 	dex
+	; bmi @bad would allow 0-length hash.
 	beq @bad
 
-	phx
 	phy
+	phx
 
 	; hash append the salt.
 	lda #MSG_USER
@@ -537,7 +538,7 @@ str	equ lowtr+1
 	bit a2 ; hash length
 	bmi exit
 
-	lda #str
+	lda str
 	sta prmtbl
 	stx prmtbl+2
 	; hash it
@@ -560,17 +561,18 @@ str	equ lowtr+1
 	dc.b $42, WDM_ID
 
 	lda prmtbl+2 ; actual size
-	bne exit
+	beq exit
 	cmp a2
 	bne exit
 
-	lsr a ; / 2
 	tay
+	dey
 	dey
 @loop
 	lda (prmtbl),y
 	cmp (prmtbl+4),y
 	bne exit
+	dey
 	dey
 	bpl @loop
 	lda #1
