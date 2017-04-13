@@ -183,6 +183,7 @@ do_ampr
 	inx
 	inx
 	cmp #tkEND
+	beq @ok
 	inx
 	inx
 	cmp #tkVAL
