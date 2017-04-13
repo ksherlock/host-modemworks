@@ -110,6 +110,7 @@ WDM_ID	equ $fe
 
 
 tkDATA	equ $83
+tkINPUT equ $84
 tkTEXT	equ $89
 tkNEW	equ $bf
 tkEND	equ $80
@@ -172,6 +173,8 @@ do_ampr
 	inx
 	inx
 	cmp #tkDATA
+	beq @ok
+	cmp #tkINPUT
 	beq @ok
 	inx
 	inx
