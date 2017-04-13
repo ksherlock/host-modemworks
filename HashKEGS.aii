@@ -269,10 +269,10 @@ hash_paren
 	bsr hash_native_data
 
 	jsr CHKCLS
-	jsr CHKCOM
 
 	; drop through...
 hash_end
+	jsr CHKCOM
 
 	; buffer
 
