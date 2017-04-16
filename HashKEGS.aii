@@ -195,11 +195,27 @@ do_ampr
 	jmp (hash_table,x)
 
 hash_new
+	; todo -- use hash new(type),ok
+	jsr CHKOPN
 	jsr GETBYT
 	stx type
+	jsr CHKCLS
+
 	stx prmtbl+0
 	stz prmtbl+1
-	brl hash_native_init
+	bsr hash_native_init
+	sta a1 ; return value.
+	stz a1+1
+
+	lda (TXTPTR)
+	cmp #','
+	beq @rw
+	rts
+@rw
+	jsr CHKCOM
+	ldy #OMM_PUTWORD
+	ldx #OMM_ID
+	jmp OMMVEC	
 
 
 hash_data
